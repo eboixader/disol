@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSI Flors: Laboratorio de Mezclas V4</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;600;700&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- Libraries: MediaPipe & jsPDF -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Fredoka', sans-serif;
+            overflow: hidden;
+            background-color: #f0f9ff;
+            touch-action: none;
+            user-select: none;
+        }
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #video-input { display: none; }
+        
+        /* Glassmorphism UI */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            border-radius: 1rem;
+        }
+
+        /* Animated Background */
+        .lab-bg {
+            background: linear-gradient(-45deg, #e0f2fe, #f0f9ff, #eef2ff, #f0fdf4);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+        }
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Tech Font for Numbers */
+        .tech-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .input-focus:focus {
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body class="relative h-screen w-screen lab-bg">
+
+    <!-- Raw Video Element (Hidden) -->
+    <video id="video-input"></video>
+
+    <!-- Game Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- 1. LOADING SCREEN -->
+    <div id="loading-screen" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/90 backdrop-blur-md">
+        <div class="text-5xl font-bold text-blue-600 mb-2 tracking-tighter">CSI FLORS</div>
+        <div class="text-xl text-gray-500 mb-8 font-light">Laboratorio de Análisis Químico</div>
+        <div class="relative w-20 h-20">
+            <div class="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+        <p class="mt-6 text-sm text-gray-400">Iniciando sistema de reconocimiento óptico...</p>
+    </div>
+
+    <!-- 2. LOGIN SCREEN (Name Input) -->
+    <div id="login-screen" class="hidden absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="glass-panel p-10 max-w-md w-full text-center border-t-4 border-blue-500 transform transition-all hover:scale-105 duration-500">
+            <div class="mb-6">
+                <span class="text-6xl">🥼</span>
+            </div>
+            <h2 class="text-3xl font-bold text-gray-800 mb-2">Identificación de Agente</h2>
+            <p class="text-gray-500 mb-8 text-sm">Introduce tu nombre para registrar la misión.</p>
+            
+            <input type="text" id="player-name" placeholder="Nombre del alumno/a" 
+                class="w-full px-6 py-4 rounded-xl bg-white/80 border-2 border-blue-100 text-lg text-center text-blue-900 placeholder-blue-300 input-focus transition-all mb-6 font-bold"
+                autocomplete="off">
+
+            <button onclick="goToLevelSelect()" 
+                class="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold rounded-xl shadow-lg hover:shadow-blue-500/30 transform hover:-translate-y-1 transition-all text-lg tracking-wide">
+                ACCEDER AL SISTEMA
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. LEVEL SELECT SCREEN -->
+    <div id="level-screen" class="hidden absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="glass-panel p-8 max-w-5xl w-full text-center">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">Selección de Misión</h1>
+            <p class="text-gray-500 mb-10">Agente <span id="display-player-name" class="font-bold text-blue-600"></span>, elige la dificultad.</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Nivel 1 -->
+                <button onclick="startGame(1)" class="group relative p-8 bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-200 hover:border-green-500 hover:shadow-2xl transition-all text-left overflow-hidden">
+                    <div class="relative z-10">
+                        <div class="flex items-center justify-between mb-4">
+                            <span class="text-3xl font-bold text-green-700">Nivel Aprendiz</span>
+                            <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">1º ESO</span>
+                        </div>
+                        <ul class="text-sm text-gray-600 space-y-2 mb-6">
+                            <li class="flex items-center"><span class="mr-2 text-green-500">✓</span> Ayudas de color activas</li>
+                            <li class="flex items-center"><span class="mr-2 text-green-500">✓</span> Etiquetas de tipo visibles</li>
+                            <li class="flex items-center"><span class="mr-2 text-green-500">✓</span> Velocidad moderada</li>
+                        </ul>
+                        <div class="text-green-600 font-bold group-hover:translate-x-2 transition-transform">Iniciar Protocolo &rarr;</div>
+                    </div>
+                    <div class="absolute -right-10 -bottom-10 w-40 h-40 bg-green-100 rounded-full blur-3xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                </button>
+
+                <!-- Nivel 2 -->
+                <button onclick="startGame(2)" class="group relative p-8 bg-gradient-to-br from-purple-50 to-white rounded-2xl border border-purple-200 hover:border-purple-500 hover:shadow-2xl transition-all text-left overflow-hidden">
+                    <div class="relative z-10">
+                        <div class="flex items-center justify-between mb-4">
+                            <span class="text-3xl font-bold text-purple-700">Nivel Experto</span>
+                            <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">CSI / 4º ESO</span>
+                        </div>
+                        <ul class="text-sm text-gray-600 space-y-2 mb-6">
+                            <li class="flex items-center"><span class="mr-2 text-purple-500">⚠</span> Sin ayudas visuales</li>
+                            <li class="flex items-center"><span class="mr-2 text-purple-500">⚠</span> Colores aleatorios</li>
+                            <li class="flex items-center"><span class="mr-2 text-purple-500">⚠</span> Compuestos complejos</li>
+                        </ul>
+                        <div class="text-purple-600 font-bold group-hover:translate-x-2 transition-transform">Iniciar Protocolo &rarr;</div>
+                    </div>
+                    <div class="absolute -right-10 -bottom-10 w-40 h-40 bg-purple-100 rounded-full blur-3xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                </button>
+            </div>
+            
+            <div class="mt-8 flex justify-center space-x-8 opacity-70">
+                 <div class="flex items-center text-sm text-gray-500"><span class="text-2xl mr-2">🖐️</span> Apuntar</div>
+                 <div class="flex items-center text-sm text-gray-500"><span class="text-2xl mr-2">👌</span> Pinza para Capturar</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. GAME HUD -->
+    <div id="game-ui" class="hidden absolute top-0 left-0 w-full p-4 flex justify-between items-start pointer-events-none z-30">
+        <!-- Target Instruction -->
+        <div class="glass-panel px-8 py-4 border-l-8 border-yellow-400 transform transition-all duration-300" id="objective-panel">
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Objetivo Actual</p>
+            <div class="flex items-baseline space-x-2">
+                <span class="text-lg text-gray-500">Capturar:</span>
+                <span id="target-display" class="text-4xl font-bold text-blue-600 tracking-tight drop-shadow-sm">...</span>
+            </div>
+        </div>
+
+        <!-- Timer -->
+        <div class="glass-panel px-6 py-3 flex flex-col items-center border-t-4 border-blue-400">
+            <span class="text-xs text-gray-400 font-bold tracking-widest">TIEMPO</span>
+            <span id="timer-display" class="text-4xl tech-font font-bold text-gray-700">02:00</span>
+        </div>
+
+        <!-- Stats -->
+        <div class="flex space-x-4">
+            <div class="glass-panel px-5 py-3 flex flex-col items-center border-b-4 border-green-500 min-w-[100px]">
+                <span class="text-xs text-gray-400 font-bold">ACIERTOS</span>
+                <span id="score-display" class="text-3xl tech-font font-bold text-green-600">0</span>
+            </div>
+            <div class="glass-panel px-5 py-3 flex flex-col items-center border-b-4 border-red-500 min-w-[100px]">
+                <span class="text-xs text-gray-400 font-bold">FALLOS</span>
+                <span id="errors-display" class="text-3xl tech-font font-bold text-red-600">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. GAME OVER SCREEN -->
+    <div id="game-over-screen" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-lg">
+        <h2 id="game-over-title" class="text-6xl font-bold text-white mb-2 tracking-tight">Misión Finalizada</h2>
+        <p class="text-xl text-blue-200 mb-8 font-light">Resultados del análisis espectral</p>
+        
+        <div class="flex gap-6 mb-10 w-full max-w-2xl justify-center">
+            <div class="bg-white/5 p-8 rounded-2xl border border-white/10 flex-1 text-center">
+                <div class="text-xs text-green-400 uppercase tracking-widest mb-2">Aciertos</div>
+                <div id="final-score" class="text-7xl tech-font font-bold text-white">0</div>
+            </div>
+            <div class="bg-white/5 p-8 rounded-2xl border border-white/10 flex-1 text-center">
+                <div class="text-xs text-red-400 uppercase tracking-widest mb-2">Errores</div>
+                <div id="final-errors" class="text-7xl tech-font font-bold text-white">0</div>
+            </div>
+        </div>
+
+        <div class="flex space-x-4">
+            <button onclick="downloadReport()" class="flex items-center px-8 py-4 bg-white text-blue-900 font-bold rounded-xl hover:bg-blue-50 transition transform hover:scale-105 shadow-xl text-lg">
+                <span class="mr-2">📄</span> Descargar Informe PDF
+            </button>
+            <button onclick="location.reload()" class="px-8 py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-500 transition transform hover:scale-105 shadow-xl text-lg border border-blue-400">
+                Nueva Misión
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA ---
+        const DATA_LEVEL_1 = {
+            'Soluto': ['Sal', 'Azúcar', 'Cacao', 'Café', 'Yodo', 'Colorante', 'Gas (CO2)', 'Gelatina'],
+            'Disolvente': ['Agua', 'Alcohol', 'Acetona', 'Aceite', 'Leche', 'Vinagre', 'Gasolina'],
+            'Disolución': ['Agua de Mar', 'Aire', 'Acero', 'Bronce', 'Refresco', 'Colonia', 'Suero']
+        };
+
+        const DATA_LEVEL_2 = {
+            'Soluto': [
+                'Sal Común', 'Sacarosa', 'Fructosa', 'Yodo', 'Nitrato de Plata', 
+                'Sulfato de Cobre', 'Cloruro Sódico', 'Urea', 'Colesterol', 'Cafeína',
+                'Dióxido de Carbono', 'Oxígeno Disuelto', 'Taninos', 'Ácido Cítrico', 'Bicarbonato',
+                'Fluoruro', 'Magnesio', 'Potasio', 'Vitamina C', 'Glucosa'
+            ],
+            'Disolvente': [
+                'Agua Destilada', 'Etanol', 'Metanol', 'Acetona', 'Aguarrás', 
+                'Benceno', 'Tolueno', 'Hexano', 'Cloroformo', 'Éter Etílico',
+                'Disulfuro de Carbono', 'Tetracloruro de C', 'Aceite Mineral', 'Glicerina',
+                'Ácido Acético', 'Isopropanol', 'Xileno', 'Trementina', 'Nitrógeno Líquido'
+            ],
+            'Disolución': [
+                'Agua Salada', 'Aire Atmosférico', 'Acero Inoxidable', 'Bronce', 'Latón', 
+                'Amalgama Dental', 'Peltre', 'Oro 18k', 'Vinagre', 'Gas Natural',
+                'Plasma Sanguíneo', 'Lágrima', 'Sudor', 'Lejía Comercial', 'Formol',
+                'Petróleo Crudo', 'Agua Regia', 'Suero Fisiológico', 'Bebida Gaseosa', 'Niebla'
+            ]
+        };
+        
+        const TYPES = ['Soluto', 'Disolvente', 'Disolución'];
+        
+        // Colores "Científicos" (Sutiles para las burbujas)
+        const BUBBLE_COLORS_L1 = {
+            'Soluto': { h: 0, s: 70, l: 60 },      // Redish
+            'Disolvente': { h: 200, s: 70, l: 60 }, // Blueish
+            'Disolución': { h: 45, s: 80, l: 60 }   // Yellowish
+        };
+
+        // --- GAME STATE ---
+        let gameState = {
+            playerName: 'Agente Anónimo',
+            active: false,
+            level: 1,
+            score: 0,
+            errors: 0,
+            timeLeft: 120,
+            totalTime: 120,
+            currentTarget: 'Soluto',
+            balloons: [],
+            particles: [],
+            cursor: { x: -100, y: -100 },
+            targetHand: { x: -100, y: -100 },
+            isPinching: false,
+            lastSpawnTime: 0,
+            spawnInterval: 2000,
+            difficultyMultiplier: 1,
+            lastFrameTime: 0
+        };
+
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        let canvasWidth, canvasHeight;
+
+        // --- UTILS ---
+        const lerp = (start, end, amt) => (1 - amt) * start + amt * end;
+
+        function resize() {
+            canvasWidth = window.innerWidth;
+            canvasHeight = window.innerHeight;
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- MEDIAPIPE ---
+        const videoElement = document.getElementById('video-input');
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(onResults);
+        
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+
+        function onResults(results) {
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const lm = results.multiHandLandmarks[0];
+                const index = lm[8], thumb = lm[4], wrist = lm[0], middle = lm[9];
+                
+                // Scale normalization based on hand size
+                const handSize = Math.hypot((wrist.x - middle.x)*canvasWidth, (wrist.y - middle.y)*canvasHeight);
+                
+                const targetX = (1 - index.x) * canvasWidth;
+                const targetY = index.y * canvasHeight;
+                gameState.targetHand = { x: targetX, y: targetY };
+
+                const thumbX = (1 - thumb.x) * canvasWidth;
+                const thumbY = thumb.y * canvasHeight;
+                const pinchDist = Math.hypot(targetX - thumbX, targetY - thumbY);
+                
+                gameState.isPinching = pinchDist < (handSize * 0.4); // Adaptive threshold
+            } else {
+                gameState.isPinching = false;
+            }
+
+            // Smoothing
+            if (gameState.active || !document.getElementById('login-screen').classList.contains('hidden')) {
+                gameState.cursor.x = lerp(gameState.cursor.x, gameState.targetHand.x, 0.25);
+                gameState.cursor.y = lerp(gameState.cursor.y, gameState.targetHand.y, 0.25);
+            }
+
+            if (gameState.active) {
+                updateGame();
+                drawGame();
+                if (gameState.isPinching) checkCollisions(gameState.cursor.x, gameState.cursor.y);
+            }
+            
+            drawCursor(gameState.cursor.x, gameState.cursor.y, gameState.isPinching);
+        }
+
+        // --- RENDERERS ---
+        function drawCursor(x, y, isPinching) {
+            if (x < 0) return;
+            
+            // Crosshair style for CSI feel
+            ctx.strokeStyle = isPinching ? '#ef4444' : '#3b82f6';
+            ctx.lineWidth = 2;
+            
+            // Circle
+            ctx.beginPath();
+            ctx.arc(x, y, 20, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Cross lines
+            ctx.beginPath();
+            ctx.moveTo(x - 30, y); ctx.lineTo(x + 30, y);
+            ctx.moveTo(x, y - 30); ctx.lineTo(x, y + 30);
+            ctx.stroke();
+
+            // Pinch fill
+            if (isPinching) {
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.5)';
+                ctx.beginPath();
+                ctx.arc(x, y, 15, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Balloon {
+            constructor() {
+                const dataset = gameState.level === 1 ? DATA_LEVEL_1 : DATA_LEVEL_2;
+                this.type = TYPES[Math.floor(Math.random() * TYPES.length)];
+                const words = dataset[this.type];
+                this.text = words[Math.floor(Math.random() * words.length)];
+                
+                this.radius = 55 + Math.random() * 20;
+                this.x = Math.random() * (canvasWidth - this.radius * 2) + this.radius;
+                this.y = canvasHeight + this.radius;
+                
+                // Color Logic
+                if (gameState.level === 1) {
+                    this.hsl = BUBBLE_COLORS_L1[this.type];
+                } else {
+                    // Random pretty color
+                    this.hsl = { h: Math.random() * 360, s: 70, l: 60 };
+                }
+
+                this.speed = (gameState.level === 2 ? 3.0 : 2.0) * gameState.difficultyMultiplier;
+                this.wobbleOffset = Math.random() * 100;
+                this.markedForDeletion = false;
+            }
+
+            update() {
+                this.y -= this.speed;
+                this.x += Math.sin((this.y + this.wobbleOffset) * 0.02) * 1.5;
+                if (this.y < -this.radius * 2) this.markedForDeletion = true;
+            }
+
+            draw() {
+                // 3D Bubble Effect
+                const { h, s, l } = this.hsl;
+                
+                // 1. Base Fill (Transparent)
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${h}, ${s}%, ${l}%, 0.1)`;
+                ctx.fill();
+                
+                // 2. Inner Gradient (Color tint)
+                const grad = ctx.createRadialGradient(
+                    this.x - this.radius*0.3, this.y - this.radius*0.3, this.radius*0.1,
+                    this.x, this.y, this.radius
+                );
+                grad.addColorStop(0, `hsla(${h}, ${s}%, 90%, 0)`);
+                grad.addColorStop(0.8, `hsla(${h}, ${s}%, ${l}%, 0.4)`);
+                grad.addColorStop(1, `hsla(${h}, ${s}%, ${l-20}%, 0.8)`);
+                
+                ctx.fillStyle = grad;
+                ctx.fill();
+
+                // 3. Specular Highlight (The shine)
+                ctx.beginPath();
+                ctx.ellipse(this.x - this.radius*0.4, this.y - this.radius*0.4, this.radius*0.15, this.radius*0.08, -Math.PI/4, 0, Math.PI*2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fill();
+
+                // 4. Rim Light (Bottom reflection)
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 0.9, 0.5 * Math.PI, 1.5 * Math.PI, true); // Bottom arc
+                ctx.strokeStyle = `hsla(${h}, ${s}%, 90%, 0.3)`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Text Rendering
+                ctx.fillStyle = '#1e293b';
+                ctx.font = '700 16px Fredoka';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Text background pill for readability
+                const textWidth = ctx.measureText(this.text).width;
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                ctx.roundRect(this.x - textWidth/2 - 8, this.y - 14, textWidth + 16, 28, 14);
+                ctx.fill();
+
+                ctx.fillStyle = '#0f172a';
+                ctx.fillText(this.text, this.x, this.y);
+                
+                if (gameState.level === 1) {
+                    ctx.font = '12px Fredoka';
+                    ctx.fillStyle = '#475569';
+                    ctx.fillText(this.type, this.x, this.y + 24);
+                }
+            }
+        }
+
+        class Particle {
+            constructor(x, y, hsl) {
+                this.x = x; this.y = y; this.hsl = hsl;
+                this.size = Math.random() * 6 + 2;
+                this.speedX = (Math.random() - 0.5) * 10;
+                this.speedY = (Math.random() - 0.5) * 10;
+                this.life = 1.0;
+            }
+            update() {
+                this.x += this.speedX; this.y += this.speedY;
+                this.speedY += 0.2; // Gravity
+                this.life -= 0.02;
+            }
+            draw() {
+                ctx.fillStyle = `hsla(${this.hsl.h}, ${this.hsl.s}%, 50%, ${this.life})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        // --- GAME LOGIC ---
+        function updateGame() {
+            const now = Date.now();
+            const dt = (now - gameState.lastFrameTime) / 1000;
+            gameState.lastFrameTime = now;
+
+            if (gameState.timeLeft > 0) {
+                gameState.timeLeft -= dt;
+                updateTimerDisplay();
+                if (gameState.timeLeft <= 0) endGame();
+            }
+
+            if (now - gameState.lastSpawnTime > gameState.spawnInterval) {
+                gameState.balloons.push(new Balloon());
+                gameState.lastSpawnTime = now;
+                if (gameState.spawnInterval > 600) gameState.spawnInterval -= 15;
+            }
+
+            gameState.balloons.forEach(b => b.update());
+            gameState.balloons = gameState.balloons.filter(b => !b.markedForDeletion);
+            gameState.particles.forEach(p => p.update());
+            gameState.particles = gameState.particles.filter(p => p.life > 0);
+        }
+
+        function checkCollisions(x, y) {
+            gameState.balloons.forEach(b => {
+                const dist = Math.hypot(x - b.x, y - b.y);
+                if (dist < b.radius && !b.markedForDeletion) {
+                    b.markedForDeletion = true;
+                    // Explosion
+                    for(let i=0; i<10; i++) gameState.particles.push(new Particle(b.x, b.y, b.hsl));
+                    
+                    if (b.type === gameState.currentTarget) {
+                        gameState.score++;
+                        document.getElementById('score-display').innerText = gameState.score;
+                        document.getElementById('score-display').classList.add('scale-125');
+                        setTimeout(()=>document.getElementById('score-display').classList.remove('scale-125'), 100);
+                    } else {
+                        gameState.errors++;
+                        document.getElementById('errors-display').innerText = gameState.errors;
+                    }
+                    if (Math.random() > 0.75) changeTarget();
+                }
+            });
+        }
+
+        function changeTarget() {
+            gameState.currentTarget = TYPES[Math.floor(Math.random() * TYPES.length)];
+            const el = document.getElementById('target-display');
+            el.innerText = gameState.currentTarget.toUpperCase();
+            const panel = document.getElementById('objective-panel');
+            panel.classList.add('bg-yellow-100', 'scale-105');
+            setTimeout(() => panel.classList.remove('bg-yellow-100', 'scale-105'), 300);
+        }
+
+        function updateTimerDisplay() {
+            const m = Math.floor(gameState.timeLeft / 60);
+            const s = Math.floor(gameState.timeLeft % 60);
+            document.getElementById('timer-display').innerText = 
+                `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+        }
+
+        function drawGame() {
+            gameState.balloons.forEach(b => b.draw());
+            gameState.particles.forEach(p => p.draw());
+        }
+
+        // --- FLOW CONTROL ---
+        
+        function init() {
+            camera.start().then(() => {
+                document.getElementById('loading-screen').classList.add('hidden');
+                document.getElementById('login-screen').classList.remove('hidden');
+                document.getElementById('player-name').focus();
+            }).catch(e => alert("Error de cámara: " + e));
+        }
+
+        window.goToLevelSelect = function() {
+            const nameInput = document.getElementById('player-name').value.trim();
+            if (!nameInput) {
+                alert("Agente, identifíquese para continuar.");
+                return;
+            }
+            gameState.playerName = nameInput;
+            document.getElementById('display-player-name').innerText = gameState.playerName;
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('level-screen').classList.remove('hidden');
+        }
+
+        window.startGame = function(lvl) {
+            gameState.level = lvl;
+            gameState.active = true;
+            gameState.score = 0;
+            gameState.errors = 0;
+            gameState.timeLeft = 120;
+            gameState.balloons = [];
+            gameState.spawnInterval = 2000;
+            gameState.lastFrameTime = Date.now();
+            gameState.lastSpawnTime = Date.now();
+
+            document.getElementById('level-screen').classList.add('hidden');
+            document.getElementById('game-ui').classList.remove('hidden');
+            changeTarget();
+        }
+
+        function endGame() {
+            gameState.active = false;
+            document.getElementById('game-ui').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('final-score').innerText = gameState.score;
+            document.getElementById('final-errors').innerText = gameState.errors;
+        }
+
+        // --- PDF GENERATION ---
+        window.downloadReport = function() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            // Header
+            doc.setFillColor(37, 99, 235); // Blue header
+            doc.rect(0, 0, 210, 40, 'F');
+            
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(24);
+            doc.setFont("helvetica", "bold");
+            doc.text("CSI FLORS: INFORME DE MISIÓN", 105, 25, null, null, "center");
+
+            // Info Section
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(14);
+            doc.setFont("helvetica", "normal");
+            
+            const date = new Date().toLocaleDateString('es-ES');
+            
+            doc.text(`Agente: ${gameState.playerName}`, 20, 60);
+            doc.text(`Fecha: ${date}`, 20, 70);
+            doc.text(`Nivel de Dificultad: ${gameState.level === 1 ? 'Aprendiz (1º ESO)' : 'Experto (CSI Avanzado)'}`, 20, 80);
+
+            // Results Box
+            doc.setDrawColor(200, 200, 200);
+            doc.setFillColor(245, 245, 245);
+            doc.roundedRect(20, 95, 170, 60, 3, 3, 'FD');
+
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text("RESULTADOS DEL ANÁLISIS", 105, 110, null, null, "center");
+
+            doc.setFontSize(12);
+            doc.setTextColor(0, 128, 0); // Green
+            doc.text(`ACIERTOS: ${gameState.score}`, 40, 130);
+            
+            doc.setTextColor(200, 0, 0); // Red
+            doc.text(`ERRORES: ${gameState.errors}`, 130, 130);
+            
+            // Evaluation
+            doc.setTextColor(50, 50, 50);
+            let evaluation = "";
+            let grade = "";
+            
+            const totalAttempts = gameState.score + gameState.errors;
+            const accuracy = totalAttempts > 0 ? (gameState.score / totalAttempts) * 10 : 0;
+
+            if (gameState.score > 20 && accuracy > 8) {
+                evaluation = "RENDIMIENTO EXCEPCIONAL. El agente demuestra un dominio total de la clasificación de materia.";
+                grade = "SOBRESALIENTE";
+            } else if (gameState.score > 10 && accuracy > 5) {
+                evaluation = "BUEN RENDIMIENTO. Se recomienda repasar algunos conceptos de mezclas.";
+                grade = "NOTABLE";
+            } else {
+                evaluation = "NECESITA ENTRENAMIENTO. Se detectan dificultades en la identificación de solutos y disolventes.";
+                grade = "EN PROCESO";
+            }
+
+            doc.setFont("helvetica", "italic");
+            doc.text(evaluation, 20, 170, { maxWidth: 170 });
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(14);
+            doc.text(`CALIFICACIÓN FINAL: ${grade}`, 20, 190);
+
+            // Footer
+            doc.setFontSize(10);
+            doc.setTextColor(150, 150, 150);
+            doc.text("Fundación Flors - Departamento de Ciencias", 105, 280, null, null, "center");
+
+            doc.save(`Informe_CSI_${gameState.playerName.replace(/\s+/g, '_')}.pdf`);
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
